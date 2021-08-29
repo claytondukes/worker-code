@@ -127,4 +127,4 @@ Now I look again you might also enjoy `webhook-processor-fake`.
 
 Here's a dump of the MySQL table-structure, for reference:
 
-* [sql/][(sql/)
+* [sql/](sql/)
