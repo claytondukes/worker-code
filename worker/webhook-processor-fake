@@ -1,0 +1,37 @@
+#!/usr/bin/perl -I/srv/current/common -I.
+#
+# Allow processing a single zone-file manually
+#
+# For example:
+#
+#        git clone ..
+#        ./webhook-processor-fake /path/to/pwd/zones/steve.com
+#
+
+use strict;
+use warnings;
+
+#
+#  Standard perl.
+#
+use File::Basename qw! basename !;
+
+#
+#  Our modules
+#
+use Hook;
+
+
+while ( my $file = shift )
+{
+    my $zone = basename($file);
+    $zone = lc($zone);
+
+    my $helper = Hook->new();
+    $helper->process_input( filename => $file, zone => $zone, user => "root" );
+
+    my $out = $helper->get_output();
+    print "=" x 80 . "\n";
+    print $out;
+    print "=" x 80 . "\n";
+}

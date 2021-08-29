@@ -1,0 +1,145 @@
+#!/usr/bin/perl  -I. -I/srv/current/common/
+#
+# This is the script which will process the DNS jobs from the queue.
+#
+# Steve
+# --
+#
+
+
+#
+#  Best practice.
+#
+use strict;
+use warnings;
+
+#
+#  Standard perl.
+#
+use IO::Socket;
+use JSON;
+use Redis;
+
+#
+#  Our modules.
+#
+use Hook;
+use Singleton::MySQL;
+
+
+
+
+#
+#  Connect to our redis queue.
+#
+my $redis = Redis->new();
+
+
+#
+#  Loop for connections
+#
+while (1)
+{
+
+    #
+    #  Start slowly.
+    #
+    sleep(1);
+
+    #
+    #  Abort if Redis is not running.
+    #
+    exit(0) unless ( $redis->ping() );
+
+    #
+    #  Get the next job from our queue.
+    #
+    #  If there are none then restart and reloop until there is.
+    #
+    my $job = $redis->lpop("HOOK:JOBS");
+    next if ( !$job );
+
+    #
+    #  Show the output.
+    #
+    print "Found job:\n$job\n";
+
+    #
+    #  If we have the job then deparse it.
+    #
+    #
+    my $obj = undef;
+    eval {$obj = from_json($job);};
+    if ($@)
+    {
+        print "Failed to decode the JSON object from our queue.\n";
+        next;
+    }
+
+    #
+    # Ensure we decoded it properly.
+    #
+    if ( !$obj )
+    {
+        print "The JSON object we decoded was NULL?\n";
+        next;
+    }
+
+    if ( ref $obj ne "HASH" )
+    {
+        print "JSON didn't decode to a hash\n";
+        next;
+    }
+
+    #
+    #  Create the new record in the logs-table.
+    #
+    my $dbi = Singleton::MySQL->instance();
+    my $sql = $dbi->prepare(
+        "INSERT INTO webhooks (owner,event_id) VALUES( (SELECT id FROM users WHERE login=?), ?);"
+    );
+    $sql->execute( $obj->{ 'owner' }, $obj->{ 'uuid' } );
+    $sql->finish();
+
+
+    #
+    #  Get the ID of the new record.
+    #
+    my $id = $dbi->last_insert_id( undef, undef, undef, undef );
+
+    #
+    #  The output from the job - or errors.
+    #
+    my $output = "";
+
+    #
+    #  Process the job, in an eval wrapper so that we can catch errors.
+    #
+    eval {
+        my $p = Hook->new(%$obj);
+        $p->process();
+        $output = $p->get_output();
+    };
+    if ($@)
+    {
+        $output = $@;
+    }
+
+    #
+    #  Insert the output of the job into the MySQL database.
+    #
+    $sql = $dbi->prepare("UPDATE webhooks SET text=? WHERE id=?");
+    $sql->execute( $output, $id );
+    $sql->finish();
+
+    print
+      "Inserted into MySQL output from OWNER: $obj->{'owner'} UUID: $obj->{'uuid'}\n";
+    print $output . "\n";
+    print "#" x 80 . "\n";
+
+}
+
+#
+# Never reached
+#
+exit(0);
